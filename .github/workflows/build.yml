@@ -59,7 +59,11 @@ jobs:
           EOF
 
       - name: Get packages
-        working-directory:app
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: app
         run: flutter build apk --release
 
       - name: Publish to Releases
