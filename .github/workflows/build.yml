@@ -1,4 +1,4 @@
-Name: Build APK
+name: Build APK
 
 on:
   push:
@@ -10,73 +10,46 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Create Android project structure
-        shell: bash
+      - name: Create Android scaffold
         run: |
-          flutter create . --platforms=android --org com.omer.autoedit
+          flutter create --platforms=android --org com.omer.autoedit --project-name auto_edit app
+          rm -rf app/test app/lib
+          cp -r lib app/lib
+          cp pubspec.yaml app/pubspec.yaml
 
-      - name: Configure Android SDK versions and Permissions
-        shell: bash
+      - name: Patch Android
+        working-directory: app
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          manifest = Path('android/app/src/main/AndroidManifest.xml')
-          if manifest.exists():
-              content = manifest.read_text()
-              permission = '    <uses-permission android:name="android.permission.INTERNET" />'
-              if 'android.permission.INTERNET' not in content:
-                  content = content.replace('<application', permission + '\n    <application', 1)
-              content = re.sub(r'android:label="[^"]*"', 'android:label="Wad Alreda Auto Edit"', content, count=1)
-              manifest.write_text(content)
-          PY
-
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
           for f in android/app/build.gradle android/app/build.gradle.kts; do
-            if [ -f "$f" ]; then
-              sed -i 's/flutter\.minSdkVersion/24/g' "$f"
-              sed -i 's/flutter\.compileSdkVersion/36/g' "$f"
-              sed -i 's/compileSdk = .*/compileSdk = 36/g' "$f"
-              sed -i 's/compileSdkVersion .*/compileSdkVersion 36/g' "$f"
-              sed -i 's/VERSION_1_8/VERSION_17/g' "$f"
-              sed -i "s/jvmTarget = '1.8'/jvmTarget = '17'/g" "$f"
-              sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' "$f"
-            fi
+            if [ -f "$f" ]; then sed -i 's/flutter.minSdkVersion/24/' "$f"; fi
           done
 
       - name: Get packages
+        working-directory: app
         run: flutter pub get
 
       - name: Build release APK
+        working-directory: app
         run: flutter build apk --release
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: auto-edit-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-
-      - name: Publish to GitHub Releases
+      - name: Publish to Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: AutoEdit build ${{ github.run_number }}
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: app/build/app/outputs/flutter-apk/app-release.apk
