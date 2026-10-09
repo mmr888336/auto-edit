@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 
 class AdsConfig {
-  static const String gameId = '800393741'; // لو الإعلانات ما ظهرت، تأكد من الـ Game ID في Unity
-  static const bool testMode = true; // خليه false قبل النشر النهائي
+  static const String gameId = '800393741'; // Unity Game ID
+  static const bool testMode = false; // إعلانات حقيقية
   static const String rewarded = 'BP_Rewarded_Android';
   static const String interstitial = 'BP_Interstitial_Android';
   static const String banner = 'BP_Banner_Android';
