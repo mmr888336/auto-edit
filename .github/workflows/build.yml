@@ -43,6 +43,19 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      - name: Force compileSdk 36 for plugins
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/force-sdk.gradle << 'EOF'
+          allprojects {
+            afterEvaluate { p ->
+              if (p.hasProperty('android') && p.plugins.hasPlugin('com.android.library')) {
+                p.android.compileSdkVersion 36
+              }
+            }
+          }
+          EOF
+
       - name: Build release APK
         working-directory: app
         run: flutter build apk --release
