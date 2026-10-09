@@ -21,6 +21,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.44.2'
           channel: stable
           cache: true
 
@@ -76,26 +77,6 @@ jobs:
             image_path: "icon.png"
           EOF
           dart run flutter_launcher_icons
-
-      - name: Patch unity_ads_plugin for new Flutter
-        working-directory: app
-        run: |
-          D=$(find $HOME/.pub-cache -type d -name 'unity_ads_plugin-*' | head -n 1)
-          echo "Plugin dir: $D"
-          F="$D/android/src/main/kotlin/com/rebeloid/unity_ads/UnityAdsPlugin.kt"
-          perl -0pi -e 's/^import io\.flutter\.plugin\.common\.PluginRegistry\.Registrar\s*\n//m' "$F"
-          perl -0pi -e 's/(\@JvmStatic\s*)?fun registerWith\(\s*registrar:\s*(?:PluginRegistry\.)?Registrar\s*\)\s*\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}//s' "$F"
-          for g in "$D"/android/build.gradle "$D"/android/build.gradle.kts; do
-            if [ -f "$g" ]; then
-              sed -i '/src\/main\/kotlin/d' "$g"
-              echo "----- $g -----"
-              cat "$g"
-            fi
-          done
-          echo "----- kotlin files -----"
-          find "$D/android" -name '*.kt'
-          echo "----- UnityAdsPlugin.kt -----"
-          cat "$F"
 
       - name: Build release APK
         working-directory: app
