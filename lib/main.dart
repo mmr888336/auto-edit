@@ -3,11 +3,16 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'ad_page.dart';
+import 'ads_service.dart';
 import 'settings.dart';
 import 'silence_cutter.dart';
 import 'usage.dart';
 
-void main() => runApp(const AutoEditApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  AdsService.init();
+  runApp(const AutoEditApp());
+}
 
 class AutoEditApp extends StatelessWidget {
   const AutoEditApp({super.key});
@@ -128,6 +133,7 @@ class _HomePageState extends State<HomePage> {
         status =
             'تم ✅\nالمدة: ${res.originalSec.toStringAsFixed(1)}ث ← ${res.newSec.toStringAsFixed(1)}ث\nالحجم: ${mb.toStringAsFixed(1)} ميجا';
       });
+      AdsService.showInterstitial();
     } catch (e) {
       if (mounted) setState(() => status = 'حصل خطأ ❌\n$e');
     } finally {
@@ -156,6 +162,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+      bottomNavigationBar: const BannerSlot(),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
