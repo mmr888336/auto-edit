@@ -1,4 +1,4 @@
-name: Build APK
+Name: Build APK
 
 on:
   push:
@@ -34,6 +34,7 @@ jobs:
           rm -rf app/test app/lib
           cp -r lib app/lib
           cp pubspec.yaml app/pubspec.yaml
+
       - name: Patch Android manifest and SDK versions
         working-directory: app
         shell: bash
@@ -53,11 +54,13 @@ jobs:
 
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
-              # تعديل إصدارات SDK لتكون متوافقة
+              # تعديل إصدارات SDK لتصبح 36 لتتوافق مع مكتبات Android الحديثة
               sed -i 's/flutter\.minSdkVersion/24/g' "$f"
-              sed -i 's/flutter\.compileSdkVersion/34/g' "$f"
+              sed -i 's/flutter\.compileSdkVersion/36/g' "$f"
+              sed -i 's/compileSdk = .*/compileSdk = 36/g' "$f"
+              sed -i 's/compileSdkVersion .*/compileSdkVersion 36/g' "$f"
               
-              # توحيد إصدارات JVM لتصبح 17 بدلاً من 1.8 لحل مشكلة التعارض
+              # توحيد إصدارات JVM لتصبح 17
               sed -i 's/VERSION_1_8/VERSION_17/g' "$f"
               sed -i "s/jvmTarget = '1.8'/jvmTarget = '17'/g" "$f"
               sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' "$f"
