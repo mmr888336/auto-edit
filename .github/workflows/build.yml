@@ -31,48 +31,28 @@ jobs:
           cp -r lib app/lib
           cp pubspec.yaml app/pubspec.yaml
 
-      - name: Patch Android (internet + minSdk 24 + compileSdk 36 + Java 17)
+      - name: Patch Android (internet + minSdk 24 + compileSdk 36)
         working-directory: app
         run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
-          rm -f android/app/build.gradle.kts
-          cat << 'EOF' > android/app/build.gradle
-          plugins {
-              id "com.android.application"
-              id "kotlin-android"
-              id "dev.flutter.flutter-gradle-plugin"
-          }
+          for f in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i 's/flutter.minSdkVersion/24/' "$f"
+              sed -i 's/flutter.compileSdkVersion/36/' "$f"
+            fi
+          done
 
-          android {
-              namespace "com.omer.autoedit.auto_edit"
-              compileSdk 36
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-
-              defaultConfig {
-                  applicationId "com.omer.autoedit.auto_edit"
-                  minSdk 24
-                  targetSdk 36
-                  versionCode 1
-                  versionName "1.0"
-              }
-
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.debug
+      - name: Force compileSdk 36 on all plugins
+        run: |
+          mkdir -p $HOME/.gradle
+          cat << 'EOF' > $HOME/.gradle/init.gradle
+          allprojects {
+              afterEvaluate { p ->
+                  def ext = p.extensions.findByName('android')
+                  if (ext != null) {
+                      ext.compileSdkVersion(36)
                   }
               }
-          }
-
-          flutter {
-              source '../..'
           }
           EOF
 
