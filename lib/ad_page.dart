@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'ads_service.dart';
 
-/// شاشة الإعلان (60 ثانية). حالياً مؤقتة، لاحقاً نربطها بإعلانات حقيقية (AdMob).
+/// شاشة الإعلان: تعرض إعلان Unity المكافأة، ولو اكتمل تدي المستخدم رصيده
 class AdPage extends StatefulWidget {
   const AdPage({super.key});
   @override
@@ -9,55 +9,61 @@ class AdPage extends StatefulWidget {
 }
 
 class _AdPageState extends State<AdPage> {
-  static const int total = 60;
-  int left = total;
-  Timer? _t;
+  bool loading = true;
+  String error = '';
 
   @override
   void initState() {
     super.initState();
-    _t = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
-      setState(() => left--);
-      if (left <= 0) t.cancel();
-    });
+    _run();
   }
 
-  @override
-  void dispose() {
-    _t?.cancel();
-    super.dispose();
+  Future<void> _run() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
+    final ok = await AdsService.showRewarded();
+    if (!mounted) return;
+    if (ok) {
+      Navigator.pop(context, true);
+    } else {
+      setState(() {
+        loading = false;
+        error = AdsService.lastError.isEmpty
+            ? 'ما اكتمل الإعلان. شوفه للآخر عشان تاخد الرصيد.'
+            : 'ما قدرنا نعرض الإعلان: ${AdsService.lastError}';
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final done = left <= 0;
-    return PopScope(
-      canPop: done,
-      child: Scaffold(
-        appBar: AppBar(title: const Text('إعلان'), automaticallyImplyLeading: false),
-        body: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.ondemand_video, size: 80),
+    return Scaffold(
+      appBar: AppBar(title: const Text('إعلان')),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.ondemand_video, size: 80),
+            const SizedBox(height: 24),
+            if (loading) ...[
+              const Center(child: CircularProgressIndicator()),
               const SizedBox(height: 16),
-              const Text('مساحة الإعلان',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 20)),
-              const SizedBox(height: 24),
-              LinearProgressIndicator(value: (total - left) / total),
-              const SizedBox(height: 12),
-              Text(done ? 'خلص الإعلان ✅' : 'باقي $left ثانية',
-                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 18)),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: done ? () => Navigator.pop(context, true) : null,
-                child: const Text('استلم 60 ثانية'),
-              ),
+              const Text('جاري تحميل الإعلان...',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
+            ] else ...[
+              SelectableText(error,
+                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: _run, child: const Text('حاول تاني')),
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('رجوع')),
             ],
-          ),
+          ],
         ),
       ),
     );
