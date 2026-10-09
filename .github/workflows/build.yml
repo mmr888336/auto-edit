@@ -42,7 +42,7 @@ jobs:
             fi
           done
 
-      - name: Force compileSdk 36 on all plugins
+      - name: Force compileSdk 36 and Java 17 on all plugins
         run: |
           mkdir -p $HOME/.gradle
           cat << 'EOF' > $HOME/.gradle/init.gradle
@@ -51,17 +51,15 @@ jobs:
                   def ext = p.extensions.findByName('android')
                   if (ext != null) {
                       ext.compileSdkVersion(36)
+                      ext.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
+                      ext.compileOptions.targetCompatibility = JavaVersion.VERSION_17
                   }
               }
           }
           EOF
 
       - name: Get packages
-        working-directory: app
-        run: flutter pub get
-
-      - name: Build release APK
-        working-directory: app
+        working-directory:app
         run: flutter build apk --release
 
       - name: Publish to Releases
