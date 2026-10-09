@@ -31,10 +31,11 @@ jobs:
           cp -r lib app/lib
           cp pubspec.yaml app/pubspec.yaml
 
-      - name: Patch Android (internet + minSdk 24 + compileSdk 36)
+      - name: Patch Android (internet + minSdk 24 + compileSdk 36 + app name)
         working-directory: app
         run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          sed -i 's#android:label="[^"]*"#android:label="Wad Alreda Auto Edit"#' android/app/src/main/AndroidManifest.xml
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
               sed -i 's/flutter.minSdkVersion/24/' "$f"
@@ -62,14 +63,38 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      - name: Set app icon
+        working-directory: app
+        continue-on-error: true
+        run: |
+          cp ../icon.png icon.png
+          flutter pub add --dev flutter_launcher_icons
+          cat > flutter_launcher_icons.yaml << 'EOF'
+          flutter_launcher_icons:
+            android: true
+            ios: false
+            image_path: "icon.png"
+          EOF
+          dart run flutter_launcher_icons
+
       - name: Patch unity_ads_plugin for new Flutter
         working-directory: app
         run: |
-          F=$(find $HOME/.pub-cache -name UnityAdsPlugin.kt | head -n 1)
-          echo "Patching $F"
+          D=$(find $HOME/.pub-cache -type d -name 'unity_ads_plugin-*' | head -n 1)
+          echo "Plugin dir: $D"
+          F="$D/android/src/main/kotlin/com/rebeloid/unity_ads/UnityAdsPlugin.kt"
           perl -0pi -e 's/^import io\.flutter\.plugin\.common\.PluginRegistry\.Registrar\s*\n//m' "$F"
           perl -0pi -e 's/(\@JvmStatic\s*)?fun registerWith\(\s*registrar:\s*(?:PluginRegistry\.)?Registrar\s*\)\s*\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}//s' "$F"
-          echo "----- patched file -----"
+          for g in "$D"/android/build.gradle "$D"/android/build.gradle.kts; do
+            if [ -f "$g" ]; then
+              sed -i '/src\/main\/kotlin/d' "$g"
+              echo "----- $g -----"
+              cat "$g"
+            fi
+          done
+          echo "----- kotlin files -----"
+          find "$D/android" -name '*.kt'
+          echo "----- UnityAdsPlugin.kt -----"
           cat "$F"
 
       - name: Build release APK
