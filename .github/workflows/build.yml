@@ -31,10 +31,11 @@ jobs:
           cp -r lib app/lib
           cp pubspec.yaml app/pubspec.yaml
 
-      - name: Patch Android (internet permission + minSdk 24 + compileSdk 36)
+      - name: Patch Android (internet + minSdk 24 + compileSdk 36 + Java 17)
         working-directory: app
         run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          rm -f android/app/build.gradle.kts
           cat << 'EOF' > android/app/build.gradle
           plugins {
               id "com.android.application"
@@ -45,6 +46,15 @@ jobs:
           android {
               namespace "com.omer.autoedit.auto_edit"
               compileSdk 36
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
 
               defaultConfig {
                   applicationId "com.omer.autoedit.auto_edit"
