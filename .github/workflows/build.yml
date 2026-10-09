@@ -31,12 +31,17 @@ jobs:
           cp -r lib app/lib
           cp pubspec.yaml app/pubspec.yaml
 
-      - name: Patch Android (internet permission + minSdk 24 for FFmpeg)
+      - name: Patch Android (internet permission + minSdk 24 + compileSdk 36)
         working-directory: app
         run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
           for f in android/app/build.gradle android/app/build.gradle.kts; do
-            if [ -f "$f" ]; then sed -i 's/flutter.minSdkVersion/24/' "$f"; fi
+            if [ -f "$f" ]; then 
+              sed -i 's/flutter.minSdkVersion/24/' "$f"
+              sed -i 's/flutter.compileSdkVersion/36/' "$f"
+              sed -i 's/compileSdk = .*/compileSdk = 36/' "$f"
+              sed -i 's/compileSdkVersion .*/compileSdkVersion 36/' "$f"
+            fi
           done
 
       - name: Get packages
