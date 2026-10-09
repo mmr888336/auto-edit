@@ -27,16 +27,12 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Create Android scaffold
+      - name: Create Android project structure
         shell: bash
         run: |
-          flutter create --platforms=android --org com.omer.autoedit --project-name auto_edit app
-          rm -rf app/test app/lib
-          cp -r lib app/lib
-          cp pubspec.yaml app/pubspec.yaml
+          flutter create . --platforms=android --org com.omer.autoedit
 
-      - name: Patch Android manifest and SDK versions
-        working-directory: app
+      - name: Configure Android SDK versions and Permissions
         shell: bash
         run: |
           python3 - <<'PY'
@@ -44,23 +40,21 @@ jobs:
           import re
 
           manifest = Path('android/app/src/main/AndroidManifest.xml')
-          content = manifest.read_text()
-          permission = '    <uses-permission android:name="android.permission.INTERNET" />'
-          if 'android.permission.INTERNET' not in content:
-              content = content.replace('<application', permission + '\n    <application', 1)
-          content = re.sub(r'android:label="[^"]*"', 'android:label="Wad Alreda Auto Edit"', content, count=1)
-          manifest.write_text(content)
+          if manifest.exists():
+              content = manifest.read_text()
+              permission = '    <uses-permission android:name="android.permission.INTERNET" />'
+              if 'android.permission.INTERNET' not in content:
+                  content = content.replace('<application', permission + '\n    <application', 1)
+              content = re.sub(r'android:label="[^"]*"', 'android:label="Wad Alreda Auto Edit"', content, count=1)
+              manifest.write_text(content)
           PY
 
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
-              # تعديل إصدارات SDK لتصبح 36 لتتوافق مع مكتبات Android الحديثة
               sed -i 's/flutter\.minSdkVersion/24/g' "$f"
               sed -i 's/flutter\.compileSdkVersion/36/g' "$f"
               sed -i 's/compileSdk = .*/compileSdk = 36/g' "$f"
               sed -i 's/compileSdkVersion .*/compileSdkVersion 36/g' "$f"
-              
-              # توحيد إصدارات JVM لتصبح 17
               sed -i 's/VERSION_1_8/VERSION_17/g' "$f"
               sed -i "s/jvmTarget = '1.8'/jvmTarget = '17'/g" "$f"
               sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' "$f"
@@ -68,18 +62,16 @@ jobs:
           done
 
       - name: Get packages
-        working-directory: app
         run: flutter pub get
 
       - name: Build release APK
-        working-directory: app
         run: flutter build apk --release
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: auto-edit-release-apk
-          path: app/build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: Publish to GitHub Releases
@@ -87,4 +79,4 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: AutoEdit build ${{ github.run_number }}
-          files: app/build/app/outputs/flutter-apk/app-release.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
