@@ -12,12 +12,27 @@ class CutResult {
   CutResult(this.path, this.originalSec, this.newSec, this.segments);
 }
 
+class MediaInfo {
+  final int w;
+  final int h;
+  MediaInfo(this.w, this.h);
+}
+
 /// يقص السكتات من الفيديو باستخدام FFmpeg (كله داخل الجوال)
 class SilenceCutter {
   static String _f(double v) => v.toStringAsFixed(3);
 
   static String _tail(String s) =>
       s.length > 500 ? s.substring(s.length - 500) : s;
+
+  /// يقرأ أبعاد الفيديو
+  static Future<MediaInfo> probe(String path) async {
+    final s = await FFmpegKit.execute('-hide_banner -i "$path"');
+    final logs = await s.getAllLogsAsString() ?? '';
+    final m = RegExp(r'Video:.*?(\d{3,5})x(\d{3,5})').firstMatch(logs);
+    if (m == null) throw Exception('ما قدرت أقرأ أبعاد الفيديو.');
+    return MediaInfo(int.parse(m.group(1)!), int.parse(m.group(2)!));
+  }
 
   static Future<CutResult> process(
     String input, {
@@ -87,8 +102,8 @@ class SilenceCutter {
           'الفيديو بعد القص ${newSec.toStringAsFixed(0)} ثانية، ورصيدك اليوم ${maxSec.toStringAsFixed(0)} ثانية فقط.\nشاهد إعلان لزيادة الرصيد أو اختر فيديو أقصر.');
     }
 
-    // 5) القص والدمج
-    onStatus?.call('جاري القص والتصدير (${keep.length} مقطع)...');
+    // 5) القص والدمج (ملف وسيط بجودة عالية، التصدير النهائي في المرحلة التالية)
+    onStatus?.call('جاري القص (${keep.length} مقطع)...');
     final sb = StringBuffer();
     for (var i = 0; i < keep.length; i++) {
       sb.write(
@@ -99,42 +114,30 @@ class SilenceCutter {
     for (var i = 0; i < keep.length; i++) {
       sb.write('[v$i][a$i]');
     }
-    // دقة 2K (الضلع الأقصر 1440) مع الحفاظ على النسبة
-    sb.write('concat=n=${keep.length}:v=1:a=1[vc][a];');
-    sb.write(
-        '[vc]scale=1440:1440:force_original_aspect_ratio=increase:force_divisible_by=2[v]');
+    sb.write('concat=n=${keep.length}:v=1:a=1[v][a]');
 
     final dir = (await getExternalStorageDirectory()) ??
         await getApplicationDocumentsDirectory();
-    final out = '${dir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final out = '${dir.path}/cut_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
     String cmd(String vcodec) =>
         '-y -i "$input" -filter_complex "${sb.toString()}" -map "[v]" -map "[a]" '
-        '$vcodec -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart "$out"';
+        '$vcodec -pix_fmt yuv420p -c:a aac -b:a 192k "$out"';
 
-    var ok = await _encode(
-        cmd('-c:v libx264 -preset veryfast -b:v 2200k -maxrate 2600k -bufsize 5200k'), newSec, onProgress);
+    var ok = await encode(
+        cmd('-c:v libx264 -preset veryfast -crf 18'), newSec, onProgress);
     if (!ok) {
-      // خطة بديلة لو libx264 غير متوفر
       onStatus?.call('جاري المحاولة بترميز بديل...');
-      ok = await _encode(cmd('-c:v mpeg4 -b:v 2200k'), newSec, onProgress);
+      ok = await encode(cmd('-c:v mpeg4 -q:v 2'), newSec, onProgress);
     }
     if (!ok || !File(out).existsSync()) {
-      throw Exception('فشل التصدير.');
+      throw Exception('فشل القص.');
     }
     return CutResult(out, total, newSec, keep.length);
   }
 
-  /// يستخرج صورة غلاف من الفيديو نفسه (يرجع المسار أو null)
-  static Future<String?> makeThumb(String video, double durationSec) async {
-    final thumb = video.replaceAll('.mp4', '_cover.jpg');
-    final at = durationSec > 2 ? 1.0 : 0.0;
-    await FFmpegKit.execute(
-        '-y -ss ${at.toStringAsFixed(1)} -i "$video" -frames:v 1 -q:v 2 "$thumb"');
-    return File(thumb).existsSync() ? thumb : null;
-  }
-
-  static Future<bool> _encode(
+  /// يشغّل أمر FFmpeg ويرجع نجح/فشل، مع نسبة التقدم
+  static Future<bool> encode(
       String command, double expectedSec, void Function(double)? onProgress) {
     final c = Completer<bool>();
     FFmpegKit.executeAsync(command, (session) async {
