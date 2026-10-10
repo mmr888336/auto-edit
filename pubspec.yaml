@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  ffmpeg_kit_flutter_new: ^4.3.1
+  ffmpeg_kit_flutter_new_min_gpl: ^2.6.3
   file_picker: ^8.1.2
   shared_preferences: ^2.3.2
   path_provider: ^2.1.4
