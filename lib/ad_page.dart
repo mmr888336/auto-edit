@@ -4,34 +4,50 @@ import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 
 class AdsConfig {
   static const String gameId = '800393741'; // Unity Game ID
-  static const bool testMode = false; // إعلانات حقيقية
+  // true = إعلانات تجريبية (آمن للتجربة). غيّرها إلى false عند نشر التطبيق.
+  static const bool testMode = true;
   static const String rewarded = 'BP_Rewarded_Android';
-  static const String interstitial = 'BP_Interstitial_Android';
-  static const String banner = 'BP_Banner_Android';
 }
 
 class AdsService {
-  static final Completer<bool> _init = Completer<bool>();
+  static Completer<bool>? _init;
   static String lastError = '';
 
   static void _done(Completer<bool> c, bool v) {
     if (!c.isCompleted) c.complete(v);
   }
 
-  static void init() {
-    UnityAds.init(
-      gameId: AdsConfig.gameId,
-      testMode: AdsConfig.testMode,
-      onComplete: () => _done(_init, true),
-      onFailed: (error, message) {
-        lastError = '$error $message';
-        _done(_init, false);
-      },
-    );
+  /// تهيئة Unity عند أول طلب إعلان فقط (مش عند فتح التطبيق)
+  static Future<bool> _ensureInit() {
+    if (_init != null) return _init!.future;
+    final c = Completer<bool>();
+    _init = c;
+    try {
+      UnityAds.init(
+        gameId: AdsConfig.gameId,
+        testMode: AdsConfig.testMode,
+        onComplete: () => _done(c, true),
+        onFailed: (error, message) {
+          lastError = '$error $message';
+          _done(c, false);
+        },
+      );
+    } catch (e) {
+      lastError = '$e';
+      _done(c, false);
+    }
+    return c.future.timeout(const Duration(seconds: 20), onTimeout: () {
+      lastError = 'انتهت مهلة التهيئة';
+      return false;
+    });
   }
 
   static Future<bool> _load(String placement) async {
-    if (!await _init.future) return false;
+    final ready = await _ensureInit();
+    if (!ready) {
+      _init = null; // عشان المحاولة الجاية تعيد التهيئة
+      return false;
+    }
     final c = Completer<bool>();
     UnityAds.load(
       placementId: placement,
@@ -49,6 +65,7 @@ class AdsService {
 
   /// يرجع true فقط لو المستخدم شاف الإعلان كامل
   static Future<bool> showRewarded() async {
+    lastError = '';
     if (!await _load(AdsConfig.rewarded)) return false;
     final c = Completer<bool>();
     UnityAds.showVideoAd(
@@ -61,27 +78,6 @@ class AdsService {
       },
     );
     return c.future;
-  }
-
-  static Future<void> showInterstitial() async {
-    if (!await _load(AdsConfig.interstitial)) return;
-    UnityAds.showVideoAd(
-      placementId: AdsConfig.interstitial,
-      onFailed: (_, __, ___) {},
-    );
-  }
-}
-
-class BannerSlot extends StatelessWidget {
-  const BannerSlot({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: UnityBannerAd(
-        placementId: AdsConfig.banner,
-        size: BannerSize.standard,
-      ),
-    );
   }
 }
 
@@ -140,7 +136,8 @@ class _AdPageState extends State<AdPage> {
                   textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
             ] else ...[
               SelectableText(error,
-                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16)),
               const SizedBox(height: 16),
               FilledButton(onPressed: _run, child: const Text('حاول تاني')),
               TextButton(
