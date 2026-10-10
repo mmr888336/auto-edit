@@ -56,9 +56,9 @@ jobs:
           }
           EOF
 
-      - name: Build release APK
+      - name: Build release APK (arm64 only, no shrink)
         working-directory: app
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64 --no-shrink
 
       - name: Publish to Releases
         uses: softprops/action-gh-release@v2
