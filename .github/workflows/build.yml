@@ -30,6 +30,16 @@ jobs:
           rm -rf app/test app/lib
           cp -r lib app/lib
           cp pubspec.yaml app/pubspec.yaml
+          cat > app/android/app/proguard-rules.pro << 'EOF'
+          -keep class androidx.work.** { *; }
+          -keep class androidx.room.** { *; }
+          -keep class * extends androidx.room.RoomDatabase { *; }
+          -keep class androidx.work.impl.WorkDatabase_Impl { *; }
+          -keep class com.unity3d.** { *; }
+          -keep class com.arthenica.ffmpegkit.** { *; }
+          -keep class com.antonkarpenko.ffmpegkit.** { *; }
+          -dontwarn com.unity3d.**
+          EOF
 
       - name: Patch Android
         working-directory: app
@@ -38,6 +48,33 @@ jobs:
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then sed -i 's/flutter.minSdkVersion/24/' "$f"; fi
           done
+          if [ -f android/app/build.gradle.kts ]; then
+            cat >> android/app/build.gradle.kts << 'EOF'
+
+          android {
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      proguardFiles("proguard-rules.pro")
+                  }
+              }
+          }
+          EOF
+          elif [ -f android/app/build.gradle ]; then
+            cat >> android/app/build.gradle << 'EOF'
+
+          android {
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                      proguardFiles 'proguard-rules.pro'
+                  }
+              }
+          }
+          EOF
+          fi
 
       - name: Get packages
         working-directory: app
