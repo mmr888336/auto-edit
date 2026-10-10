@@ -7,9 +7,11 @@ import 'settings.dart';
 import 'silence_cutter.dart';
 import 'usage.dart';
 
+/// للتجربة: true = يتجاهل رصيد الإعلانات. غيّرها إلى false قبل نشر التطبيق.
+const bool kSkipQuotaForTesting = true;
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  AdsService.init();
   runApp(const AutoEditApp());
 }
 
@@ -61,7 +63,9 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _watchAd() async {
     if (!await Usage.canWatchAd()) {
-      if (mounted) setState(() => status = 'وصلت الحد اليومي (دقيقتين). جرّب بكرة.');
+      if (mounted) {
+        setState(() => status = 'وصلت الحد اليومي (دقيقتين). جرّب بكرة.');
+      }
       return;
     }
     if (!mounted) return;
@@ -91,12 +95,14 @@ class _HomePageState extends State<HomePage> {
       status = 'تم اختيار: ${r.files.single.name}';
     });
   }
+
   Future<void> _run() async {
     if (inputPath == null) return;
     final s = await AppSettings.load();
-    final left = await Usage.remaining();
+    final left = kSkipQuotaForTesting ? 3600 : await Usage.remaining();
     if (left <= 0) {
-      setState(() => status = 'رصيدك اليوم 0 ثانية. اضغط "شاهد إعلان" لتاخد 60 ثانية.');
+      setState(() =>
+          status = 'رصيدك اليوم 0 ثانية. اضغط "شاهد إعلان" لتاخد 60 ثانية.');
       return;
     }
     setState(() {
@@ -120,7 +126,7 @@ class _HomePageState extends State<HomePage> {
         },
       );
       final mb = File(res.path).lengthSync() / (1024 * 1024);
-      await Usage.consume(res.newSec.ceil());
+      if (!kSkipQuotaForTesting) await Usage.consume(res.newSec.ceil());
       final thumb = await SilenceCutter.makeThumb(res.path, res.newSec);
       await _refreshQuota();
       if (!mounted) return;
@@ -131,7 +137,6 @@ class _HomePageState extends State<HomePage> {
         status =
             'تم ✅\nالمدة: ${res.originalSec.toStringAsFixed(1)}ث ← ${res.newSec.toStringAsFixed(1)}ث\nالحجم: ${mb.toStringAsFixed(1)} ميجا';
       });
-      AdsService.showInterstitial();
     } catch (e) {
       if (mounted) setState(() => status = 'حصل خطأ ❌\n$e');
     } finally {
@@ -160,51 +165,60 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      bottomNavigationBar: const BannerSlot(),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            FilledButton.icon(
-              onPressed: busy ? null : _pick,
-              icon: const Icon(Icons.video_library),
-              label: const Text('اختر فيديو'),
+        children: [
+          FilledButton.icon(
+            onPressed: busy ? null : _pick,
+            icon: const Icon(Icons.video_library),
+            label: const Text('اختر فيديو'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: (busy || inputPath == null) ? null : _run,
+            icon: const Icon(Icons.content_cut),
+            label: const Text('قص السكتات'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.tonalIcon(
+            onPressed: busy ? null : _watchAd,
+            icon: const Icon(Icons.ondemand_video),
+            label: const Text('شاهد إعلان (+60 ثانية)'),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            kSkipQuotaForTesting
+                ? 'وضع التجربة: الرصيد غير محدود'
+                : 'رصيدك اليوم: $remaining ثانية',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          if (busy) LinearProgressIndicator(value: progress),
+          const SizedBox(height: 12),
+          SelectableText(status, style: const TextStyle(fontSize: 16)),
+          if (thumbPath != null) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 160,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(File(thumbPath!), fit: BoxFit.cover),
+              ),
             ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: (busy || inputPath == null) ? null : _run,
-              icon: const Icon(Icons.content_cut),
-              label: const Text('قص السكتات'),
+            TextButton.icon(
+              onPressed: _deleteThumb,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('احذف الغلاف'),
             ),
-            const SizedBox(height: 20),
-            if (busy) LinearProgressIndicator(value: progress),
-            const SizedBox(height: 12),
-            SelectableText(status, style: const TextStyle(fontSize: 16)),
-            if (thumbPath != null) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 160,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.file(File(thumbPath!), fit: BoxFit.cover),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _deleteThumb,
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('احذف الغلاف'),
-              ),
-            ],
-            const Spacer(),
-            if (outputPath != null)
-              FilledButton.tonalIcon(
-                onPressed: _share,
-                icon: const Icon(Icons.share),
-                label: const Text('حفظ / مشاركة الفيديو'),
-              ),
           ],
-        ),
+          const SizedBox(height: 20),
+          if (outputPath != null)
+            FilledButton.tonalIcon(
+              onPressed: _share,
+              icon: const Icon(Icons.share),
+              label: const Text('حفظ / مشاركة الفيديو'),
+            ),
+        ],
       ),
     );
   }
