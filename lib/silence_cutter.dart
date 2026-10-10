@@ -18,20 +18,36 @@ class MediaInfo {
   MediaInfo(this.w, this.h);
 }
 
-/// يقص السكتات من الفيديو باستخدام FFmpeg (كله داخل الجوال)
+/// يقص السكتات من الفيديو باستخدام FFmpeg داخل الجوال.[span_2](start_span)[span_2](end_span)
 class SilenceCutter {
   static String _f(double v) => v.toStringAsFixed(3);
 
   static String _tail(String s) =>
       s.length > 500 ? s.substring(s.length - 500) : s;
 
-  /// يقرأ أبعاد الفيديو
+  /// يقرأ أبعاد الفيديو. FFmpeg قد يرجع exit code غير ناجح هنا لأننا لا نطلب ملف إخراج.[span_3](start_span)[span_3](end_span)
   static Future<MediaInfo> probe(String path) async {
-    final s = await FFmpegKit.execute('-hide_banner -i "$path"');
-    final logs = await s.getAllLogsAsString() ?? '';
-    final m = RegExp(r'Video:.*?(\d{3,5})x(\d{3,5})').firstMatch(logs);
-    if (m == null) throw Exception('ما قدرت أقرأ أبعاد الفيديو.');
-    return MediaInfo(int.parse(m.group(1)!), int.parse(m.group(2)!));
+    final session = await FFmpegKit.execute('-hide_banner -i "$path"');
+    final logs = await session.getAllLogsAsString() ?? '';
+    final match = RegExp(r'Video:.*?(\d{3,5})x(\d{3,5})').firstMatch(logs);
+    if (match == null) throw Exception('ما قدرت أقرأ أبعاد الفيديو.');
+    return MediaInfo(int.parse(match.group(1)!), int.parse(match.group(2)!));
+  }
+
+  /// متوافقة مع الاستدعاء القديم SilenceCutter.makeThumb(path, seconds).[span_4](start_span)[span_4](end_span)
+  /// تنشئ صورة مصغرة JPEG وترجع مسارها، وترمي خطأ واضحًا إذا فشل التوليد.[span_5](start_span)[span_5](end_span)
+  static Future<String> makeThumb(String videoPath, double seconds) async {
+    final file = File(videoPath);
+    if (!await file.exists()) throw Exception('ملف الفيديو غير موجود لإنشاء الصورة المصغرة.');
+    final at = seconds > 1 ? 1.0 : 0.0;
+    final out = '${file.parent.path}/thumb_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final command = '-y -ss $at -i "$videoPath" -frames:v 1 -q:v 3 "$out"';
+    final session = await FFmpegKit.execute(command);
+    final success = ReturnCode.isSuccess(await session.getReturnCode());
+    if (!success || !await File(out).exists()) {
+      throw Exception('فشل إنشاء الصورة المصغرة.');
+    }
+    return out;
   }
 
   static Future<CutResult> process(
@@ -42,25 +58,25 @@ class SilenceCutter {
     void Function(String)? onStatus,
     void Function(double)? onProgress,
   }) async {
-    // 1) كشف السكتات
+    if (!await File(input).exists()) throw Exception('ملف الفيديو المختار غير موجود.');
+
     onStatus?.call('جاري تحليل الصوت...');
     final detect = await FFmpegKit.execute(
-        '-hide_banner -i "$input" -af silencedetect=noise=${noiseDb.toStringAsFixed(0)}dB:d=${minSilence.toStringAsFixed(2)} -vn -f null -');
+      '-hide_banner -i "$input" -af silencedetect=noise=${noiseDb.toStringAsFixed(0)}dB:d=${minSilence.toStringAsFixed(2)} -vn -f null -',
+    );
     final logs = await detect.getAllLogsAsString() ?? '';
     final rc = await detect.getReturnCode();
     if (!ReturnCode.isSuccess(rc)) {
-      throw Exception(
-          'فشل تحليل الصوت (ممكن الفيديو بدون صوت).\n${_tail(logs)}');
+      throw Exception('فشل تحليل الصوت (قد يكون الفيديو بلا صوت).\n${_tail(logs)}');
     }
 
-    // 2) المدة الكلية
-    final d = RegExp(r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)').firstMatch(logs);
-    if (d == null) throw Exception('ما قدرت أعرف مدة الفيديو.');
-    final total = int.parse(d.group(1)!) * 3600 +
-        int.parse(d.group(2)!) * 60 +
-        double.parse(d.group(3)!);
+    final durationMatch =
+        RegExp(r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)').firstMatch(logs);
+    if (durationMatch == null) throw Exception('ما قدرت أعرف مدة الفيديو.');
+    final total = int.parse(durationMatch.group(1)!) * 3600 +
+        int.parse(durationMatch.group(2)!) * 60 +
+        double.parse(durationMatch.group(3)!);
 
-    // 3) السكتات
     final starts = RegExp(r'silence_start:\s*(-?[\d.]+)')
         .allMatches(logs)
         .map((m) => double.parse(m.group(1)!))
@@ -72,83 +88,72 @@ class SilenceCutter {
 
     final silences = <List<double>>[];
     for (var i = 0; i < starts.length; i++) {
-      final st = starts[i] < 0 ? 0.0 : starts[i];
-      final en = i < ends.length ? ends[i] : total;
-      silences.add([st, en > total ? total : en]);
+      final start = starts[i] < 0 ? 0.0 : starts[i];
+      final end = i < ends.length ? ends[i] : total;
+      silences.add([start, end > total ? total : end]);
     }
 
-    // 4) مقاطع الكلام (مع هامش صغير عشان ما ينقص أول/آخر الكلمة)
     const pad = 0.08;
     const minSeg = 0.25;
     final keep = <List<double>>[];
     var cursor = 0.0;
-    for (final s in silences) {
-      final segEnd = (s[0] + pad) > total ? total : (s[0] + pad);
+    for (final silence in silences) {
+      final segEnd = (silence[0] + pad) > total ? total : silence[0] + pad;
       if (segEnd - cursor > minSeg) keep.add([cursor, segEnd]);
-      cursor = (s[1] - pad) < 0 ? 0.0 : (s[1] - pad);
+      cursor = (silence[1] - pad) < 0 ? 0.0 : silence[1] - pad;
     }
     if (total - cursor > minSeg) keep.add([cursor, total]);
 
-    if (keep.isEmpty) {
-      throw Exception('ما لقيت كلام في الفيديو. جرّب تقلل حساسية السكتة.');
-    }
-    final newSec = keep.fold<double>(0, (a, k) => a + (k[1] - k[0]));
+    if (keep.isEmpty) throw Exception('ما لقيت كلامًا قابلًا للاحتفاظ به. قلّل حساسية السكتة.');
+    final newSec = keep.fold<double>(0, (sum, segment) => sum + segment[1] - segment[0]);
     if (silences.isEmpty || (total - newSec) < 0.3) {
-      throw Exception('ما لقيت سكتات تستحق القص. جرّب تزود الحساسية.');
+      throw Exception('ما لقيت سكتات تستحق القص. جرّب تغيير حساسية السكتة.');
     }
-
     if (maxSec != null && newSec > maxSec) {
-      throw Exception(
-          'الفيديو بعد القص ${newSec.toStringAsFixed(0)} ثانية، ورصيدك اليوم ${maxSec.toStringAsFixed(0)} ثانية فقط.\nشاهد إعلان لزيادة الرصيد أو اختر فيديو أقصر.');
+      throw Exception('مدة الفيديو بعد القص ${newSec.toStringAsFixed(0)} ثانية، والحد المتاح ${maxSec.toStringAsFixed(0)} ثانية.');
     }
 
-    // 5) القص والدمج (ملف وسيط بجودة عالية، التصدير النهائي في المرحلة التالية)
     onStatus?.call('جاري القص (${keep.length} مقطع)...');
-    final sb = StringBuffer();
+    final filter = StringBuffer();
     for (var i = 0; i < keep.length; i++) {
-      sb.write(
-          '[0:v]trim=start=${_f(keep[i][0])}:end=${_f(keep[i][1])},setpts=PTS-STARTPTS[v$i];');
-      sb.write(
-          '[0:a]atrim=start=${_f(keep[i][0])}:end=${_f(keep[i][1])},asetpts=PTS-STARTPTS[a$i];');
+      filter.write('[0:v]trim=start=${_f(keep[i][0])}:end=${_f(keep[i][1])},setpts=PTS-STARTPTS[v$i];');
+      filter.write('[0:a]atrim=start=${_f(keep[i][0])}:end=${_f(keep[i][1])},asetpts=PTS-STARTPTS[a$i];');
     }
     for (var i = 0; i < keep.length; i++) {
-      sb.write('[v$i][a$i]');
+      filter.write('[v$i][a$i]');
     }
-    sb.write('concat=n=${keep.length}:v=1:a=1[v][a]');
+    filter.write('concat=n=${keep.length}:v=1:a=1[v][a]');
 
     final dir = (await getExternalStorageDirectory()) ??
         await getApplicationDocumentsDirectory();
     final out = '${dir.path}/cut_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    String command(String codec) =>
+        '-y -i "$input" -filter_complex "${filter.toString()}" -map "[v]" -map "[a]" $codec -pix_fmt yuv420p -c:a aac -b:a 192k "$out"';
 
-    String cmd(String vcodec) =>
-        '-y -i "$input" -filter_complex "${sb.toString()}" -map "[v]" -map "[a]" '
-        '$vcodec -pix_fmt yuv420p -c:a aac -b:a 192k "$out"';
-
-    var ok = await encode(
-        cmd('-c:v libx264 -preset veryfast -crf 18'), newSec, onProgress);
+    var ok = await encode(command('-c:v libx264 -preset veryfast -crf 18'), newSec, onProgress);
     if (!ok) {
       onStatus?.call('جاري المحاولة بترميز بديل...');
-      ok = await encode(cmd('-c:v mpeg4 -q:v 2'), newSec, onProgress);
+      ok = await encode(command('-c:v mpeg4 -q:v 2'), newSec, onProgress);
     }
-    if (!ok || !File(out).existsSync()) {
-      throw Exception('فشل القص.');
-    }
+    if (!ok || !await File(out).exists()) throw Exception('فشل قص الفيديو ودمج المقاطع.');
     return CutResult(out, total, newSec, keep.length);
   }
 
-  /// يشغّل أمر FFmpeg ويرجع نجح/فشل، مع نسبة التقدم
   static Future<bool> encode(
-      String command, double expectedSec, void Function(double)? onProgress) {
-    final c = Completer<bool>();
+    String command,
+    double expectedSec,
+    void Function(double)? onProgress,
+  ) {
+    final completer = Completer<bool>();
     FFmpegKit.executeAsync(command, (session) async {
       final rc = await session.getReturnCode();
-      c.complete(ReturnCode.isSuccess(rc));
+      if (!completer.isCompleted) completer.complete(ReturnCode.isSuccess(rc));
     }, null, (stats) {
-      final num t = stats.getTime();
-      if (t > 0 && expectedSec > 0) {
-        onProgress?.call((t / 1000 / expectedSec).clamp(0.0, 1.0));
+      final num time = stats.getTime();
+      if (time > 0 && expectedSec > 0) {
+        onProgress?.call((time / 1000 / expectedSec).clamp(0.0, 1.0));
       }
     });
-    return c.future;
+    return completer.future;
   }
 }
