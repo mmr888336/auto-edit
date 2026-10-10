@@ -10,8 +10,17 @@ class AppSettings {
   String geminiModel;
   String mistralKey;
   String mistralModel;
-  double noiseDb; // حساسية السكتة
-  double minSilence; // أقل مدة سكتة تتقص (ثواني)
+  double noiseDb;
+  double minSilence;
+  bool captions;
+  bool hook;
+  bool broll;
+  bool sfx;
+  bool upscale2k;
+  double targetMb; // الحجم المستهدف لكل 30 ثانية
+  String brollProvider; // pexels | pixabay
+  String pexelsKey;
+  String pixabayKey;
 
   AppSettings({
     this.provider = 'gemini',
@@ -21,6 +30,15 @@ class AppSettings {
     this.mistralModel = 'mistral-small-latest',
     this.noiseDb = -30,
     this.minSilence = 0.5,
+    this.captions = true,
+    this.hook = true,
+    this.broll = true,
+    this.sfx = true,
+    this.upscale2k = true,
+    this.targetMb = 12,
+    this.brollProvider = 'pexels',
+    this.pexelsKey = '',
+    this.pixabayKey = '',
   });
 
   String get activeKey => provider == 'gemini' ? geminiKey : mistralKey;
@@ -35,6 +53,15 @@ class AppSettings {
       mistralModel: p.getString('mistralModel') ?? 'mistral-small-latest',
       noiseDb: p.getDouble('noiseDb') ?? -30,
       minSilence: p.getDouble('minSilence') ?? 0.5,
+      captions: p.getBool('captions') ?? true,
+      hook: p.getBool('hook') ?? true,
+      broll: p.getBool('broll') ?? true,
+      sfx: p.getBool('sfx') ?? true,
+      upscale2k: p.getBool('upscale2k') ?? true,
+      targetMb: p.getDouble('targetMb') ?? 12,
+      brollProvider: p.getString('brollProvider') ?? 'pexels',
+      pexelsKey: p.getString('pexelsKey') ?? '',
+      pixabayKey: p.getString('pixabayKey') ?? '',
     );
   }
 
@@ -47,10 +74,19 @@ class AppSettings {
     await p.setString('mistralModel', mistralModel.trim());
     await p.setDouble('noiseDb', noiseDb);
     await p.setDouble('minSilence', minSilence);
+    await p.setBool('captions', captions);
+    await p.setBool('hook', hook);
+    await p.setBool('broll', broll);
+    await p.setBool('sfx', sfx);
+    await p.setBool('upscale2k', upscale2k);
+    await p.setDouble('targetMb', targetMb);
+    await p.setString('brollProvider', brollProvider);
+    await p.setString('pexelsKey', pexelsKey.trim());
+    await p.setString('pixabayKey', pixabayKey.trim());
   }
 }
 
-/// طبقة موحدة للذكاء الاصطناعي: تبدّل بين Gemini وMistral من الإعدادات
+/// طبقة موحدة للنصوص: تبدّل بين Gemini وMistral (تُستخدم لاختبار المفتاح)
 class AiService {
   static String _cut(String s) => s.length > 300 ? s.substring(0, 300) : s;
 
@@ -116,6 +152,8 @@ class _SettingsPageState extends State<SettingsPage> {
   final gModel = TextEditingController();
   final mKey = TextEditingController();
   final mModel = TextEditingController();
+  final pxKey = TextEditingController();
+  final pbKey = TextEditingController();
   String testResult = '';
   bool testing = false;
 
@@ -129,6 +167,8 @@ class _SettingsPageState extends State<SettingsPage> {
         gModel.text = v.geminiModel;
         mKey.text = v.mistralKey;
         mModel.text = v.mistralModel;
+        pxKey.text = v.pexelsKey;
+        pbKey.text = v.pixabayKey;
       });
     });
   }
@@ -138,6 +178,8 @@ class _SettingsPageState extends State<SettingsPage> {
     s!.geminiModel = gModel.text;
     s!.mistralKey = mKey.text;
     s!.mistralModel = mModel.text;
+    s!.pexelsKey = pxKey.text;
+    s!.pixabayKey = pbKey.text;
   }
 
   Future<void> _test() async {
@@ -156,6 +198,18 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Widget _field(TextEditingController c, String label, {bool secret = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: TextField(
+        controller: c,
+        obscureText: secret,
+        decoration: InputDecoration(
+            labelText: label, border: const OutlineInputBorder()),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (s == null) {
@@ -166,8 +220,11 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('مزود الذكاء الاصطناعي',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('الذكاء الاصطناعي',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Text(
+              'الكابشن والعنوان والـ B-roll يستخدموا Gemini دايماً (لأنه يسمع الصوت).',
+              style: TextStyle(fontSize: 12)),
           RadioListTile<String>(
             title: const Text('Gemini'),
             value: 'gemini',
@@ -175,38 +232,15 @@ class _SettingsPageState extends State<SettingsPage> {
             onChanged: (v) => setState(() => s!.provider = v!),
           ),
           RadioListTile<String>(
-            title: const Text('Mistral'),
+            title: const Text('Mistral (للاختبار فقط حالياً)'),
             value: 'mistral',
             groupValue: s!.provider,
             onChanged: (v) => setState(() => s!.provider = v!),
           ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: gKey,
-            obscureText: true,
-            decoration: const InputDecoration(
-                labelText: 'مفتاح Gemini', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: gModel,
-            decoration: const InputDecoration(
-                labelText: 'اسم نموذج Gemini', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: mKey,
-            obscureText: true,
-            decoration: const InputDecoration(
-                labelText: 'مفتاح Mistral', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: mModel,
-            decoration: const InputDecoration(
-                labelText: 'اسم نموذج Mistral', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
+          _field(gKey, 'مفتاح Gemini', secret: true),
+          _field(gModel, 'اسم نموذج Gemini'),
+          _field(mKey, 'مفتاح Mistral', secret: true),
+          _field(mModel, 'اسم نموذج Mistral'),
           FilledButton.tonal(
             onPressed: testing ? null : _test,
             child: Text(testing ? 'جاري الاختبار...' : 'اختبر المفتاح'),
@@ -216,6 +250,65 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: const EdgeInsets.only(top: 8),
               child: SelectableText(testResult),
             ),
+          const Divider(height: 32),
+          const Text('ميزات المونتاج',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          SwitchListTile(
+            title: const Text('كابشن جديد'),
+            subtitle: const Text('عطّله لو الفيديو فيه كابشن محروق أصلاً'),
+            value: s!.captions,
+            onChanged: (v) => setState(() => s!.captions = v),
+          ),
+          SwitchListTile(
+            title: const Text('عنوان جذاب في أول 3 ثواني'),
+            value: s!.hook,
+            onChanged: (v) => setState(() => s!.hook = v),
+          ),
+          SwitchListTile(
+            title: const Text('B-roll (مقاطع توضيحية)'),
+            subtitle: const Text('يحتاج مفتاح Pexels أو Pixabay ونت'),
+            value: s!.broll,
+            onChanged: (v) => setState(() => s!.broll = v),
+          ),
+          SwitchListTile(
+            title: const Text('مؤثرات صوتية'),
+            value: s!.sfx,
+            onChanged: (v) => setState(() => s!.sfx = v),
+          ),
+          const SizedBox(height: 8),
+          const Text('مصدر الـ B-roll'),
+          RadioListTile<String>(
+            title: const Text('Pexels'),
+            value: 'pexels',
+            groupValue: s!.brollProvider,
+            onChanged: (v) => setState(() => s!.brollProvider = v!),
+          ),
+          RadioListTile<String>(
+            title: const Text('Pixabay'),
+            value: 'pixabay',
+            groupValue: s!.brollProvider,
+            onChanged: (v) => setState(() => s!.brollProvider = v!),
+          ),
+          _field(pxKey, 'مفتاح Pexels', secret: true),
+          _field(pbKey, 'مفتاح Pixabay', secret: true),
+          const Divider(height: 32),
+          const Text('التصدير',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          SwitchListTile(
+            title: const Text('دقة 2K'),
+            subtitle: const Text('بطيء على الجوالات الضعيفة'),
+            value: s!.upscale2k,
+            onChanged: (v) => setState(() => s!.upscale2k = v),
+          ),
+          Text(
+              'الحجم المستهدف: ${s!.targetMb.toStringAsFixed(0)} ميجا لكل 30 ثانية'),
+          Slider(
+            min: 6,
+            max: 20,
+            divisions: 14,
+            value: s!.targetMb,
+            onChanged: (v) => setState(() => s!.targetMb = v),
+          ),
           const Divider(height: 32),
           Text('حساسية السكتة: ${s!.noiseDb.toStringAsFixed(0)} dB'),
           const Text('(رقم أقل = يقص الأصوات الخافتة كمان، أعلى = يقص أقل)',
