@@ -1,0 +1,139 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android scaffold
+        shell: bash
+        run: |
+          flutter create --platforms=android --org com.omer.autoedit --project-name auto_edit app
+          rm -rf app/test app/lib
+          cp -r lib app/lib
+          cp pubspec.yaml app/pubspec.yaml
+          cat > app/android/app/proguard-rules.pro <<'PROGUARD'
+          -keep class androidx.work.** { *; }
+          -keep class androidx.room.** { *; }
+          -keep class * extends androidx.room.RoomDatabase { *; }
+          -keep class androidx.work.impl.WorkDatabase_Impl { *; }
+          -keep class com.unity3d.** { *; }
+          -keep class com.arthenica.ffmpegkit.** { *; }
+          -keep class com.antonkarpenko.ffmpegkit.** { *; }
+          -dontwarn com.unity3d.**
+          PROGUARD
+
+      - name: Patch Android permissions and SDK settings
+        working-directory: app
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          content = manifest.read_text(encoding='utf-8')
+          permissions = '''    <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+          '''
+          if 'android.permission.INTERNET' not in content:
+              content = content.replace('<application', permissions + '    <application', 1)
+          manifest.write_text(content, encoding='utf-8')
+          PY
+
+          for f in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$f" ]; then sed -i 's/flutter.minSdkVersion/24/g' "$f"; fi
+          done
+
+          if [ -f android/app/build.gradle.kts ]; then
+            cat >> android/app/build.gradle.kts <<'GRADLE'
+
+          android {
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      proguardFiles("proguard-rules.pro")
+                  }
+              }
+          }
+          GRADLE
+          elif [ -f android/app/build.gradle ]; then
+            cat >> android/app/build.gradle <<'GRADLE'
+
+          android {
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                      proguardFiles 'proguard-rules.pro'
+                  }
+              }
+          }
+          GRADLE
+          fi
+
+      - name: Configure plugin compile SDK compatibility
+        shell: bash
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/force-sdk.gradle <<'GRADLE'
+          allprojects {
+            afterEvaluate { p ->
+              if (p.hasProperty('android') && p.plugins.hasPlugin('com.android.library')) {
+                p.android.compileSdkVersion 36
+              }
+            }
+          }
+          GRADLE
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build release APK (arm64)
+        working-directory: app
+        run: flutter build apk --release --target-platform android-arm64 --no-shrink
+
+      - name: Publish APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Wad Alreda Studio build ${{ github.run_number }}
+          body: Automated Android APK build.
+          files: app/build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save APK as workflow artifact
+        if: always() && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wad-alreda-studio-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: warn
+          retention-days: 14
